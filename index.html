@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WhatsApp</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <section class="chat_section">
+      <div class="brand">
+        <img height="40" src="/logo.png" alt="" />
+        <h1 id="userName">ChatBox</h1>
+      </div>
+      <div class="message_area"></div>
+      <div class="typing" id="typing"></div>
+      <div id="emojiPicker" class="emoji-picker"></div>
+      <div class="send_area">
+        <button id="emojiBtn">😊</button>
+        <textarea
+          id="textarea"
+          rows="1"
+          placeholder="Type your message here..."
+        ></textarea>
+        <button id="recordBtn">🎤</button>
+        <button id="sendBtn">➤</button>
+      </div>
+    </section>
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
+    <script src="/client.js"></script>
+  </body>
+</html>
