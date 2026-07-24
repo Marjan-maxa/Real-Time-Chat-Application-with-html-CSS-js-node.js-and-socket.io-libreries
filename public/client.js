@@ -1,6 +1,16 @@
 const socket = io();
+const previewBox = document.getElementById("imagePreview");
+const previewImg = document.getElementById("previewImg");
+const cancelPreview = document.getElementById("cancelPreview");
+
+let selectedImage = "";
 let name;
 const recordBtn = document.getElementById("recordBtn");
+const imageBtn = document.getElementById("imageBtn");
+const imageInput = document.getElementById("imageInput");
+
+const fileBtn = document.getElementById("fileBtn");
+const fileInput = document.getElementById("fileInput");
 
 let mediaRecorder;
 let audioChunks = [];
@@ -59,6 +69,50 @@ function appendVoice(msg, type) {
   scrollToBottom();
 }
 
+function appendImage(msg, type) {
+  let div = document.createElement("div");
+
+  div.classList.add(type, "message");
+
+  div.innerHTML = `
+        <h4>${msg.user}</h4>
+
+        <img src="${msg.image}" class="chat-image openImage">
+
+        <span class="time">${msg.time}</span>
+    `;
+
+  messageArea.appendChild(div);
+  const img = div.querySelector(".openImage");
+
+  img.addEventListener("click", () => {
+    document.getElementById("modalImage").src = msg.image;
+    document.getElementById("imageModal").style.display = "flex";
+  });
+
+  scrollToBottom();
+}
+
+function appendFile(msg, type) {
+  let div = document.createElement("div");
+
+  div.classList.add(type, "message");
+
+  div.innerHTML = `
+      <h4>${msg.user}</h4>
+
+      <a href="${msg.file}" target="_blank" rel="noopener noreferrer" class="file-link">
+          📄 ${msg.fileName}
+      </a>
+
+      <span class="time">${msg.time}</span>
+  `;
+
+  messageArea.appendChild(div);
+
+  scrollToBottom();
+}
+
 socket.on("message", (msg) => {
   console.log(msg);
   appendMessage(msg, "incoming");
@@ -67,8 +121,17 @@ socket.on("message", (msg) => {
 function scrollToBottom() {
   messageArea.scrollTop = messageArea.scrollHeight;
 }
+
 socket.on("voice", (msg) => {
   appendVoice(msg, "incoming");
+});
+
+socket.on("image", (msg) => {
+  appendImage(msg, "incoming");
+});
+
+socket.on("file", (msg) => {
+  appendFile(msg, "incoming");
 });
 
 function getCurrentTime() {
@@ -88,12 +151,29 @@ sendBtn.addEventListener("click", () => {
   if (message) {
     sendMessage(message);
   }
+
+  if (selectedImage) {
+    const msg = {
+      user: name,
+      image: selectedImage,
+      time: getCurrentTime(),
+    };
+
+    appendImage(msg, "outgoing");
+
+    socket.emit("image", msg);
+
+    selectedImage = "";
+    previewBox.style.display = "none";
+    imageInput.value = "";
+  }
 });
 
 textarea.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    sendMessage(textarea.value);
+
+    sendBtn.click();
   }
 });
 textarea.addEventListener("input", () => {
@@ -119,7 +199,6 @@ const picker = new EmojiMart.Picker({
     textarea.value += emoji.native;
     textarea.focus();
 
-    // Emoji select করলে picker বন্ধ হবে
     emojiPicker.style.display = "none";
   },
 });
@@ -180,4 +259,101 @@ recordBtn.addEventListener("click", async () => {
 
     recordBtn.innerText = "🎤";
   }
+});
+
+imageBtn.addEventListener("click", () => {
+  imageInput.click();
+});
+
+imageInput.addEventListener("change", () => {
+  const file = imageInput.files[0];
+
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    selectedImage = reader.result;
+
+    previewImg.src = selectedImage;
+
+    previewBox.style.display = "block";
+  };
+
+  reader.readAsDataURL(file);
+});
+
+cancelPreview.addEventListener("click", () => {
+  selectedImage = "";
+
+  previewBox.style.display = "none";
+
+  imageInput.value = "";
+});
+
+const imageModal = document.getElementById("imageModal");
+const modalImage = document.getElementById("modalImage");
+const closeModal = document.getElementById("closeModal");
+
+closeModal.addEventListener("click", () => {
+  imageModal.style.display = "none";
+});
+
+imageModal.addEventListener("click", (e) => {
+  if (e.target === imageModal) {
+    imageModal.style.display = "none";
+  }
+});
+
+const themeBtn = document.getElementById("themeBtn");
+
+// Page Reload হলেও Theme মনে থাকবে
+if (localStorage.getItem("theme") === "dark") {
+  document.body.classList.add("dark");
+  themeBtn.innerText = "☀️";
+}
+
+themeBtn.addEventListener("click", () => {
+  document.body.classList.toggle("dark");
+
+  if (document.body.classList.contains("dark")) {
+    localStorage.setItem("theme", "dark");
+    themeBtn.innerText = "☀️";
+  } else {
+    localStorage.setItem("theme", "light");
+    themeBtn.innerText = "🌙";
+  }
+});
+
+fileBtn.addEventListener("click", () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  fetch("/upload", {
+    method: "POST",
+    body: formData,
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      const msg = {
+        user: name,
+        file: data.file,
+        fileName: data.fileName,
+        time: getCurrentTime(),
+      };
+
+      appendFile(msg, "outgoing");
+
+      socket.emit("file", msg);
+
+      fileInput.value = "";
+    });
 });

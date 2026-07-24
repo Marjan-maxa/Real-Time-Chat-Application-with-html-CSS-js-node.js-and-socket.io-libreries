@@ -11,12 +11,31 @@
       <div class="brand">
         <img height="40" src="/logo.png" alt="" />
         <h1 id="userName">ChatBox</h1>
+
+        <button id="themeBtn">🌙</button>
       </div>
       <div class="message_area"></div>
       <div class="typing" id="typing"></div>
       <div id="emojiPicker" class="emoji-picker"></div>
+
+      <div id="imagePreview" class="image-preview" style="display: none">
+        <img id="previewImg" />
+        <button id="cancelPreview">✖</button>
+      </div>
+
       <div class="send_area">
         <button id="emojiBtn">😊</button>
+        <input type="file" id="imageInput" accept="image/*" hidden />
+
+        <input
+          type="file"
+          id="fileInput"
+          accept=".pdf,.doc,.docx,.zip,.rar,.txt"
+          hidden
+        />
+
+        <button id="imageBtn">🖼️</button>
+        <button id="fileBtn">📎</button>
         <textarea
           id="textarea"
           rows="1"
@@ -26,6 +45,12 @@
         <button id="sendBtn">➤</button>
       </div>
     </section>
+
+    <!-- Full Image Viewer -->
+    <div id="imageModal" class="image-modal">
+      <span id="closeModal">&times;</span>
+      <img id="modalImage" />
+    </div>
     <script src="/socket.io/socket.io.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
