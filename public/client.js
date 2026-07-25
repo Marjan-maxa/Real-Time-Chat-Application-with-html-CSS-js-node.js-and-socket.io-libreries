@@ -1,10 +1,25 @@
 const socket = io();
+
+let localStream;
+let peerConnection;
+
+const configuration = {
+  iceServers: [
+    {
+      urls: "stun:stun.l.google.com:19302",
+    },
+  ],
+};
+
+const remoteAudio = document.getElementById("remoteAudio");
+
 const previewBox = document.getElementById("imagePreview");
 const previewImg = document.getElementById("previewImg");
 const cancelPreview = document.getElementById("cancelPreview");
 
 let selectedImage = "";
 let name;
+let pendingCandidates = [];
 const recordBtn = document.getElementById("recordBtn");
 const imageBtn = document.getElementById("imageBtn");
 const imageInput = document.getElementById("imageInput");
@@ -145,6 +160,87 @@ function getCurrentTime() {
   });
 }
 
+async function createPeerConnection() {
+  peerConnection = new RTCPeerConnection(configuration);
+
+  localStream = await navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: false,
+  });
+
+  localStream.getAudioTracks().forEach((track) => {
+    console.log("🎤 Mic Track:", track.enabled, track.readyState, track.muted);
+  });
+
+  localStream.getTracks().forEach((track) => {
+    console.log("🎤 Sending track:", track.kind);
+
+    peerConnection.addTrack(track, localStream);
+  });
+
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("ice-candidate", event.candidate);
+    }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log("ICE:", peerConnection.iceConnectionState);
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log("ICE:", peerConnection.iceConnectionState);
+  };
+
+  peerConnection.ontrack = async (event) => {
+    console.log("🔊 Remote audio received");
+
+    const stream = event.streams[0];
+
+    console.log("Remote tracks:", stream.getAudioTracks());
+
+    remoteAudio.srcObject = stream;
+
+    remoteAudio.controls = true;
+    remoteAudio.srcObject = stream;
+
+    remoteAudio.volume = 1;
+    remoteAudio.muted = false;
+
+    console.log("Volume:", remoteAudio.volume, "Muted:", remoteAudio.muted);
+
+    try {
+      await remoteAudio.play();
+
+      console.log("▶️ Audio playing");
+    } catch (error) {
+      console.log("Play error:", error);
+    }
+  };
+
+  setInterval(async () => {
+    if (!peerConnection) return;
+
+    const stats = await peerConnection.getStats();
+
+    stats.forEach((report) => {
+      if (report.type === "inbound-rtp" && report.kind === "audio") {
+        console.log(
+          "📥 Received:",
+          report.packetsReceived,
+          "bytes:",
+          report.bytesReceived,
+        );
+      }
+
+      if (report.type === "outbound-rtp" && report.kind === "audio") {
+        console.log("📤 Sent:", report.packetsSent, "bytes:", report.bytesSent);
+      }
+    });
+  }, 2000);
+
+  console.log("✅ Peer Connection Ready");
+}
 sendBtn.addEventListener("click", () => {
   const message = textarea.value.trim();
 
@@ -211,49 +307,51 @@ emojiBtn.addEventListener("click", () => {
 });
 
 recordBtn.addEventListener("click", async () => {
+  console.log("🎤 RECORD BUTTON CLICKED");
   if (!mediaRecorder || mediaRecorder.state === "inactive") {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-    });
-
-    mediaRecorder = new MediaRecorder(stream);
-
-    audioChunks = [];
-
-    mediaRecorder.ondataavailable = (event) => {
-      audioChunks.push(event.data);
-    };
-
-    mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(audioChunks, {
-        type: "audio/webm",
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
       });
 
-      const reader = new FileReader();
+      console.log("🎤 MIC OK", stream);
 
-      reader.onloadend = () => {
-        socket.emit("voice", {
-          user: name,
-          audio: reader.result,
-          time: getCurrentTime(),
+      mediaRecorder = new MediaRecorder(stream);
+
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, {
+          type: "audio/webm",
         });
 
-        appendVoice(
-          {
+        const reader = new FileReader();
+
+        reader.onloadend = () => {
+          const msg = {
             user: name,
             audio: reader.result,
             time: getCurrentTime(),
-          },
-          "outgoing",
-        );
+          };
+
+          socket.emit("voice", msg);
+
+          appendVoice(msg, "outgoing");
+        };
+
+        reader.readAsDataURL(audioBlob);
       };
 
-      reader.readAsDataURL(audioBlob);
-    };
+      mediaRecorder.start();
 
-    mediaRecorder.start();
-
-    recordBtn.innerText = "⏹";
+      recordBtn.innerText = "⏹";
+    } catch (error) {
+      console.log("🎤 MIC ERROR", error);
+    }
   } else {
     mediaRecorder.stop();
 
@@ -294,6 +392,22 @@ cancelPreview.addEventListener("click", () => {
 const imageModal = document.getElementById("imageModal");
 const modalImage = document.getElementById("modalImage");
 const closeModal = document.getElementById("closeModal");
+
+const callBtn = document.getElementById("callBtn");
+
+const callPopup = document.getElementById("incomingCall");
+
+const callerName = document.getElementById("callerName");
+
+const acceptCall = document.getElementById("acceptCall");
+
+const rejectCall = document.getElementById("rejectCall");
+
+const callingScreen = document.getElementById("callingScreen");
+
+const endCall = document.getElementById("endCall");
+
+const callStatus = document.getElementById("callStatus");
 
 closeModal.addEventListener("click", () => {
   imageModal.style.display = "none";
@@ -356,4 +470,117 @@ fileInput.addEventListener("change", () => {
 
       fileInput.value = "";
     });
+});
+callBtn.addEventListener("click", async () => {
+  console.log("📞 CALL BUTTON CLICKED");
+  await createPeerConnection();
+
+  const offer = await peerConnection.createOffer();
+
+  await peerConnection.setLocalDescription(offer);
+
+  socket.emit("offer", offer);
+
+  socket.emit("call-user", {
+    caller: name,
+  });
+
+  callingScreen.style.display = "flex";
+
+  callStatus.innerText = "Calling...";
+});
+
+rejectCall.addEventListener("click", () => {
+  callPopup.style.display = "none";
+
+  socket.emit("reject-call");
+});
+
+acceptCall.addEventListener("click", () => {
+  callPopup.style.display = "none";
+
+  callingScreen.style.display = "flex";
+
+  callStatus.innerText = "Connected";
+
+  socket.emit("accept-call");
+});
+
+endCall.addEventListener("click", () => {
+  callingScreen.style.display = "none";
+
+  socket.emit("end-call");
+});
+
+if (peerConnection) {
+  peerConnection.close();
+  peerConnection = null;
+}
+
+if (localStream) {
+  localStream.getTracks().forEach((track) => track.stop());
+}
+
+socket.on("incoming-call", (data) => {
+  console.log("📲 Incoming Call:", data);
+
+  callerName.innerText = data.caller + " is calling...";
+
+  callPopup.style.display = "flex";
+});
+
+socket.on("call-accepted", () => {
+  callStatus.innerText = "Connected";
+});
+
+socket.on("call-rejected", () => {
+  callingScreen.style.display = "none";
+
+  alert("Call Rejected");
+});
+
+socket.on("call-ended", () => {
+  callingScreen.style.display = "none";
+});
+
+socket.on("offer", async (offer) => {
+  console.log("📩 Offer received");
+
+  await createPeerConnection();
+
+  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
+  pendingCandidates.forEach(async (candidate) => {
+    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  });
+
+  pendingCandidates = [];
+
+  console.log("✅ Remote Description Set");
+
+  const answer = await peerConnection.createAnswer();
+
+  await peerConnection.setLocalDescription(answer);
+
+  console.log("📤 Answer Sent");
+
+  socket.emit("answer", answer);
+});
+
+socket.on("answer", async (answer) => {
+  await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+});
+
+socket.on("ice-candidate", async (candidate) => {
+  if (!peerConnection) return;
+
+  if (peerConnection.remoteDescription) {
+    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+
+    console.log("✅ ICE Added");
+  } else {
+    console.log("⏳ ICE queued");
+
+    pendingCandidates.push(candidate);
+  }
 });

@@ -42,6 +42,13 @@ body {
   gap: 12px;
 }
 
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .brand h1 {
   font-size: 20px;
   font-weight: 600;
@@ -272,17 +279,19 @@ audio {
 }
 
 #themeBtn {
-  margin-left: auto;
   background: transparent;
   border: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
   font-size: 22px;
   cursor: pointer;
+  color: white;
   transition: 0.3s;
-  width: auto;
-  height: auto;
 }
 
 #themeBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
   transform: scale(1.1);
 }
 
@@ -352,4 +361,124 @@ body.dark .message h4 {
     height: 90vh;
     border-radius: 18px;
   }
+}
+
+/* ================= CALL UI ================= */
+
+#callBtn {
+  background: transparent;
+  border: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  font-size: 22px;
+  cursor: pointer;
+  color: white;
+  transition: 0.3s;
+}
+
+#callBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.1);
+}
+
+.call-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+
+  width: 380px;
+  max-width: 90%;
+
+  background: #fff;
+  border-radius: 20px;
+  padding: 30px 20px;
+
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+  z-index: 9999;
+}
+
+.call-popup h2 {
+  font-size: 32px;
+  margin-bottom: 15px;
+}
+.call-popup p {
+  margin: 15px 0;
+  font-size: 20px;
+}
+
+.call-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  width: 100%;
+}
+
+.call-buttons button {
+  flex: 1;
+  max-width: 130px;
+  height: 55px;
+
+  border: none;
+  border-radius: 12px;
+
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+#acceptCall {
+  background: #25d366;
+}
+
+#rejectCall {
+  background: #ff3b30;
+}
+
+#callerName {
+  font-size: 22px;
+  margin-bottom: 25px;
+  word-break: break-word;
+  line-height: 1.5;
+}
+.calling-screen {
+  display: none;
+
+  position: fixed;
+
+  inset: 0;
+
+  background: #111b21;
+
+  color: white;
+
+  z-index: 10000;
+
+  justify-content: center;
+
+  align-items: center;
+
+  flex-direction: column;
+}
+
+#endCall {
+  margin-top: 30px;
+
+  background: red;
+
+  color: white;
+
+  border: none;
+
+  padding: 14px 35px;
+
+  border-radius: 30px;
+
+  cursor: pointer;
 }

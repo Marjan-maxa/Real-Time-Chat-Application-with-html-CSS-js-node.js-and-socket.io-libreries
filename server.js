@@ -39,7 +39,7 @@ app.get("/", (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  console.log("A user connected");
+  console.log("✅ User Connected:", socket.id);
 
   socket.on("message", (msg) => {
     socket.broadcast.emit("message", msg);
@@ -61,6 +61,47 @@ io.on("connection", (socket) => {
 
   socket.on("file", (msg) => {
     socket.broadcast.emit("file", msg);
+  });
+
+  socket.on("call-user", (data) => {
+    console.log("📞 Call request from:", data);
+
+    socket.broadcast.emit("incoming-call", {
+      caller: data.caller,
+    });
+  });
+  // Accept Call
+  socket.on("accept-call", () => {
+    socket.broadcast.emit("call-accepted");
+  });
+
+  // Reject Call
+  socket.on("reject-call", () => {
+    socket.broadcast.emit("call-rejected");
+  });
+
+  // End Call
+  socket.on("end-call", () => {
+    socket.broadcast.emit("call-ended");
+  });
+  socket.on("offer", (offer) => {
+    console.log("📤 Offer forwarding");
+
+    socket.broadcast.emit("offer", offer);
+  });
+
+  socket.on("answer", (answer) => {
+    console.log("📥 Answer forwarding");
+
+    socket.broadcast.emit("answer", answer);
+  });
+
+  socket.on("ice-candidate", (candidate) => {
+    socket.broadcast.emit("ice-candidate", candidate);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ User Disconnected:", socket.id);
   });
 });
 
