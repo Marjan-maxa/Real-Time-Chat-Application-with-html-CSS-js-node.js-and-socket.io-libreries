@@ -2,11 +2,31 @@ const socket = io();
 
 let localStream;
 let peerConnection;
-
+let statsInterval;
 const configuration = {
   iceServers: [
     {
-      urls: "stun:stun.l.google.com:19302",
+      urls: "stun:stun.relay.metered.ca:80",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:80",
+      username: "cc66adeded90f0e0741825d7",
+      credential: "r03cyHzXhqe1vJfn",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:80?transport=tcp",
+      username: "cc66adeded90f0e0741825d7",
+      credential: "r03cyHzXhqe1vJfn",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:443",
+      username: "cc66adeded90f0e0741825d7",
+      credential: "r03cyHzXhqe1vJfn",
+    },
+    {
+      urls: "turns:global.relay.metered.ca:443?transport=tcp",
+      username: "cc66adeded90f0e0741825d7",
+      credential: "r03cyHzXhqe1vJfn",
     },
   ],
 };
@@ -20,6 +40,7 @@ const cancelPreview = document.getElementById("cancelPreview");
 let selectedImage = "";
 let name;
 let pendingCandidates = [];
+let pendingOffer = null;
 const recordBtn = document.getElementById("recordBtn");
 const imageBtn = document.getElementById("imageBtn");
 const imageInput = document.getElementById("imageInput");
@@ -161,6 +182,10 @@ function getCurrentTime() {
 }
 
 async function createPeerConnection() {
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
   peerConnection = new RTCPeerConnection(configuration);
 
   localStream = await navigator.mediaDevices.getUserMedia({
@@ -180,12 +205,14 @@ async function createPeerConnection() {
 
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
+      console.log(event.candidate.candidate);
+
       socket.emit("ice-candidate", event.candidate);
     }
   };
 
   peerConnection.oniceconnectionstatechange = () => {
-    console.log("ICE:", peerConnection.iceConnectionState);
+    console.log("ICE State:", peerConnection.iceConnectionState);
   };
 
   peerConnection.oniceconnectionstatechange = () => {
@@ -194,14 +221,20 @@ async function createPeerConnection() {
 
   peerConnection.ontrack = async (event) => {
     console.log("🔊 Remote audio received");
+    console.log("Tracks:", event.streams[0].getTracks());
 
+    console.log("Audio Tracks:", event.streams[0].getAudioTracks());
+
+    console.log(
+      event.streams[0].getAudioTracks()[0].enabled,
+      event.streams[0].getAudioTracks()[0].muted,
+    );
     const stream = event.streams[0];
 
     console.log("Remote tracks:", stream.getAudioTracks());
 
     remoteAudio.srcObject = stream;
 
-    remoteAudio.controls = true;
     remoteAudio.srcObject = stream;
 
     remoteAudio.volume = 1;
@@ -218,7 +251,9 @@ async function createPeerConnection() {
     }
   };
 
-  setInterval(async () => {
+  clearInterval(statsInterval);
+
+  statsInterval = setInterval(async () => {
     if (!peerConnection) return;
 
     const stats = await peerConnection.getStats();
@@ -491,35 +526,63 @@ callBtn.addEventListener("click", async () => {
 });
 
 rejectCall.addEventListener("click", () => {
+  pendingOffer = null;
+
   callPopup.style.display = "none";
 
   socket.emit("reject-call");
 });
 
-acceptCall.addEventListener("click", () => {
+acceptCall.addEventListener("click", async () => {
+  if (!pendingOffer) return;
   callPopup.style.display = "none";
 
   callingScreen.style.display = "flex";
 
   callStatus.innerText = "Connected";
 
+  await createPeerConnection();
+
+  await peerConnection.setRemoteDescription(
+    new RTCSessionDescription(pendingOffer),
+  );
+
+  for (const candidate of pendingCandidates) {
+    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  }
+
+  pendingOffer = null;
+  pendingCandidates = [];
+
+  const answer = await peerConnection.createAnswer();
+
+  await peerConnection.setLocalDescription(answer);
+
+  socket.emit("answer", answer);
+
   socket.emit("accept-call");
 });
 
 endCall.addEventListener("click", () => {
   callingScreen.style.display = "none";
+  clearInterval(statsInterval);
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+
+  if (localStream) {
+    localStream.getTracks().forEach((track) => track.stop());
+    localStream = null;
+  }
+
+  if (remoteAudio.srcObject) {
+    remoteAudio.pause();
+    remoteAudio.srcObject = null;
+  }
 
   socket.emit("end-call");
 });
-
-if (peerConnection) {
-  peerConnection.close();
-  peerConnection = null;
-}
-
-if (localStream) {
-  localStream.getTracks().forEach((track) => track.stop());
-}
 
 socket.on("incoming-call", (data) => {
   console.log("📲 Incoming Call:", data);
@@ -541,38 +604,44 @@ socket.on("call-rejected", () => {
 
 socket.on("call-ended", () => {
   callingScreen.style.display = "none";
+  clearInterval(statsInterval);
+
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+
+  if (localStream) {
+    localStream.getTracks().forEach((track) => track.stop());
+    localStream = null;
+  }
+
+  if (remoteAudio.srcObject) {
+    remoteAudio.pause();
+    remoteAudio.srcObject = null;
+  }
 });
 
-socket.on("offer", async (offer) => {
+socket.on("offer", (offer) => {
   console.log("📩 Offer received");
 
-  await createPeerConnection();
-
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-
-  pendingCandidates.forEach(async (candidate) => {
-    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-  });
-
-  pendingCandidates = [];
-
-  console.log("✅ Remote Description Set");
-
-  const answer = await peerConnection.createAnswer();
-
-  await peerConnection.setLocalDescription(answer);
-
-  console.log("📤 Answer Sent");
-
-  socket.emit("answer", answer);
+  pendingOffer = offer;
 });
 
 socket.on("answer", async (answer) => {
+  if (peerConnection.signalingState !== "have-local-offer") {
+    return;
+  }
+
   await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
 });
 
 socket.on("ice-candidate", async (candidate) => {
-  if (!peerConnection) return;
+  if (!peerConnection) {
+    console.log("⏳ ICE queued (no peer yet)");
+    pendingCandidates.push(candidate);
+    return;
+  }
 
   if (peerConnection.remoteDescription) {
     await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -580,7 +649,6 @@ socket.on("ice-candidate", async (candidate) => {
     console.log("✅ ICE Added");
   } else {
     console.log("⏳ ICE queued");
-
     pendingCandidates.push(candidate);
   }
 });
