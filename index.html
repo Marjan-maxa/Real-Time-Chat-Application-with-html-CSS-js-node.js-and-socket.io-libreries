@@ -7,19 +7,27 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
+    <audio id="ringtone" src="/sounds/ringtone.mp3" loop></audio>
     <section class="chat_section">
       <div class="brand">
         <img height="40" src="/logo.png" alt="" />
         <h1 id="userName">ChatBox</h1>
-
+        <div class="chat-header">
+          <h3 id="userName"></h3>
+          <span id="userStatus" class="offline">🔴 Offline</span>
+        </div>
         <div class="header-actions">
           <button id="callBtn">📞</button>
+
+          <button id="videoCallBtn">📹</button>
+
           <button id="themeBtn">🌙</button>
         </div>
       </div>
 
       <div class="message_area"></div>
       <div class="typing" id="typing"></div>
+
       <div id="emojiPicker" class="emoji-picker"></div>
 
       <div id="imagePreview" class="image-preview" style="display: none">
@@ -69,17 +77,32 @@
     </div>
 
     <!-- Calling Screen -->
+    <!-- Calling Screen -->
     <div class="calling-screen" id="callingScreen">
-      <h1>📞 Calling...</h1>
+      <video id="remoteVideo" autoplay playsinline class="remote-video"></video>
+
+      <video
+        id="localVideo"
+        autoplay
+        muted
+        playsinline
+        class="local-video"
+      ></video>
 
       <h2 id="callStatus">Waiting...</h2>
 
-      <p id="ringingText">Ringing...</p>
+      <div class="call-controls">
+        <button id="muteBtn">🎤 Mute</button>
 
-      <button id="endCall">❌ End Call</button>
+        <button id="cameraBtn">📷 Off</button>
+        <button id="switchCameraBtn">🔄 Camera</button>
+
+        <button id="endCall">❌ End Call</button>
+      </div>
     </div>
 
     <audio id="remoteAudio" autoplay></audio>
+
     <script src="/socket.io/socket.io.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>

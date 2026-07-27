@@ -4,6 +4,8 @@ const http = require("http").createServer(app);
 const PORT = process.env.PORT || 4000;
 
 const io = require("socket.io")(http);
+const users = {};
+const onlineUsers = [];
 const multer = require("multer");
 const path = require("path");
 
@@ -39,6 +41,13 @@ app.get("/", (req, res) => {
 });
 
 io.on("connection", (socket) => {
+  socket.on("join", (name) => {
+    users[socket.id] = name;
+
+    onlineUsers.push(name);
+
+    io.emit("online-users", onlineUsers);
+  });
   console.log("✅ User Connected:", socket.id);
 
   socket.on("message", (msg) => {
@@ -68,6 +77,7 @@ io.on("connection", (socket) => {
 
     socket.broadcast.emit("incoming-call", {
       caller: data.caller,
+      type: data.type,
     });
   });
   // Accept Call
@@ -101,6 +111,20 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    const user = users[socket.id];
+
+    if (user) {
+      const index = onlineUsers.indexOf(user);
+
+      if (index !== -1) {
+        onlineUsers.splice(index, 1);
+      }
+
+      delete users[socket.id];
+
+      io.emit("online-users", onlineUsers);
+    }
+
     console.log("❌ User Disconnected:", socket.id);
   });
 });

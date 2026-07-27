@@ -1,8 +1,48 @@
 const socket = io();
+const ringtone = document.getElementById("ringtone");
+function startRingtone() {
+  ringtone.currentTime = 0;
+
+  ringtone.play().catch((err) => {
+    console.log("Ringtone Error:", err);
+  });
+}
+
+function stopRingtone() {
+  ringtone.pause();
+  ringtone.currentTime = 0;
+}
+
+function startCallTimer() {
+  clearInterval(callTimer);
+
+  callSeconds = 0;
+
+  callTimer = setInterval(() => {
+    callSeconds++;
+
+    const minutes = String(Math.floor(callSeconds / 60)).padStart(2, "0");
+    const seconds = String(callSeconds % 60).padStart(2, "0");
+
+    callStatus.innerText = `${minutes}:${seconds}`;
+  }, 1000);
+}
+
+function stopCallTimer() {
+  clearInterval(callTimer);
+
+  callSeconds = 0;
+}
 
 let localStream;
 let peerConnection;
 let statsInterval;
+let callTimer;
+let callSeconds = 0;
+let isMuted = false;
+let cameraOff = false;
+let useFrontCamera = true;
+let cameraIndex = 0;
 const configuration = {
   iceServers: [
     {
@@ -32,7 +72,8 @@ const configuration = {
 };
 
 const remoteAudio = document.getElementById("remoteAudio");
-
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
 const previewBox = document.getElementById("imagePreview");
 const previewImg = document.getElementById("previewImg");
 const cancelPreview = document.getElementById("cancelPreview");
@@ -41,6 +82,7 @@ let selectedImage = "";
 let name;
 let pendingCandidates = [];
 let pendingOffer = null;
+let pendingCallType = "voice";
 const recordBtn = document.getElementById("recordBtn");
 const imageBtn = document.getElementById("imageBtn");
 const imageInput = document.getElementById("imageInput");
@@ -57,6 +99,7 @@ do {
   name = prompt("Enter your name:");
 } while (!name);
 document.querySelector("#userName").textContent = name;
+socket.emit("join", name);
 function sendMessage(message) {
   if (!message.trim()) return;
 
@@ -74,24 +117,30 @@ function sendMessage(message) {
 }
 function appendMessage(msg, type) {
   let mainDiv = document.createElement("div");
-  let className = type;
-  mainDiv.classList.add(className, "message");
+  mainDiv.classList.add(type, "message");
+
+  // নিজের message হলে Me দেখাবে, অন্যথায় sender-এর নাম
+  const displayName = type === "outgoing" ? "Me" : msg.user;
+
   let markup = `
-    <h4>${msg.user}</h4>
-    <p>${msg.message}</p>
-    <span class="time">${msg.time}</span>
+      <h4>${displayName}</h4>
+      <p>${msg.message}</p>
+      <span class="time">${msg.time}</span>
   `;
+
   mainDiv.innerHTML = markup;
-  document.querySelector(".message_area").appendChild(mainDiv);
+  messageArea.appendChild(mainDiv);
+
+  scrollToBottom();
 }
 
 function appendVoice(msg, type) {
   let div = document.createElement("div");
 
   div.classList.add(type, "message");
-
+  const displayName = type === "outgoing" ? "Me" : msg.user;
   div.innerHTML = `
-        <h4>${msg.user}</h4>
+        <h4>${displayName}</h4>
 
         <audio controls>
             <source src="${msg.audio}" type="audio/webm">
@@ -109,9 +158,9 @@ function appendImage(msg, type) {
   let div = document.createElement("div");
 
   div.classList.add(type, "message");
-
+  const displayName = type === "outgoing" ? "Me" : msg.user;
   div.innerHTML = `
-        <h4>${msg.user}</h4>
+        <h4>${displayName}</h4>
 
         <img src="${msg.image}" class="chat-image openImage">
 
@@ -133,9 +182,9 @@ function appendFile(msg, type) {
   let div = document.createElement("div");
 
   div.classList.add(type, "message");
-
+  const displayName = type === "outgoing" ? "Me" : msg.user;
   div.innerHTML = `
-      <h4>${msg.user}</h4>
+      <h4>${displayName}</h4>
 
       <a href="${msg.file}" target="_blank" rel="noopener noreferrer" class="file-link">
           📄 ${msg.fileName}
@@ -181,7 +230,7 @@ function getCurrentTime() {
   });
 }
 
-async function createPeerConnection() {
+async function createPeerConnection(video = true) {
   if (peerConnection) {
     peerConnection.close();
     peerConnection = null;
@@ -190,17 +239,34 @@ async function createPeerConnection() {
 
   localStream = await navigator.mediaDevices.getUserMedia({
     audio: true,
-    video: false,
+    video: video,
   });
 
+  if (video) {
+    localVideo.style.display = "block";
+
+    localVideo.srcObject = localStream;
+
+    localVideo.muted = true;
+
+    localVideo.autoplay = true;
+
+    localVideo.playsInline = true;
+
+    await localVideo.play();
+  } else {
+    localVideo.style.display = "none";
+  }
   localStream.getAudioTracks().forEach((track) => {
     console.log("🎤 Mic Track:", track.enabled, track.readyState, track.muted);
   });
 
   localStream.getTracks().forEach((track) => {
-    console.log("🎤 Sending track:", track.kind);
+    console.log("Sending:", track.kind);
 
-    peerConnection.addTrack(track, localStream);
+    const sender = peerConnection.addTrack(track, localStream);
+
+    console.log("Sender:", sender.track.kind);
   });
 
   peerConnection.onicecandidate = (event) => {
@@ -212,42 +278,45 @@ async function createPeerConnection() {
   };
 
   peerConnection.oniceconnectionstatechange = () => {
-    console.log("ICE State:", peerConnection.iceConnectionState);
-  };
-
-  peerConnection.oniceconnectionstatechange = () => {
     console.log("ICE:", peerConnection.iceConnectionState);
+
+    if (peerConnection.iceConnectionState === "connected") {
+      console.log("✅ Call Connected");
+
+      callStatus.innerText = "Connected";
+
+      startCallTimer();
+    }
+
+    if (
+      peerConnection.iceConnectionState === "disconnected" ||
+      peerConnection.iceConnectionState === "failed" ||
+      peerConnection.iceConnectionState === "closed"
+    ) {
+      stopCallTimer();
+    }
   };
 
   peerConnection.ontrack = async (event) => {
-    console.log("🔊 Remote audio received");
-    console.log("Tracks:", event.streams[0].getTracks());
+    console.log("Remote:", event.track.kind);
 
-    console.log("Audio Tracks:", event.streams[0].getAudioTracks());
-
-    console.log(
-      event.streams[0].getAudioTracks()[0].enabled,
-      event.streams[0].getAudioTracks()[0].muted,
-    );
     const stream = event.streams[0];
 
-    console.log("Remote tracks:", stream.getAudioTracks());
+    if (event.track.kind === "video") {
+      remoteVideo.srcObject = stream;
 
-    remoteAudio.srcObject = stream;
+      remoteVideo.style.display = "block";
 
-    remoteAudio.srcObject = stream;
+      await remoteVideo.play().catch(console.log);
+    }
 
-    remoteAudio.volume = 1;
-    remoteAudio.muted = false;
+    if (event.track.kind === "audio") {
+      remoteAudio.srcObject = stream;
 
-    console.log("Volume:", remoteAudio.volume, "Muted:", remoteAudio.muted);
+      remoteAudio.volume = 1;
+      remoteAudio.muted = false;
 
-    try {
-      await remoteAudio.play();
-
-      console.log("▶️ Audio playing");
-    } catch (error) {
-      console.log("Play error:", error);
+      await remoteAudio.play().catch(console.log);
     }
   };
 
@@ -429,6 +498,7 @@ const modalImage = document.getElementById("modalImage");
 const closeModal = document.getElementById("closeModal");
 
 const callBtn = document.getElementById("callBtn");
+const videoCallBtn = document.getElementById("videoCallBtn");
 
 const callPopup = document.getElementById("incomingCall");
 
@@ -441,7 +511,9 @@ const rejectCall = document.getElementById("rejectCall");
 const callingScreen = document.getElementById("callingScreen");
 
 const endCall = document.getElementById("endCall");
-
+const muteBtn = document.getElementById("muteBtn");
+const cameraBtn = document.getElementById("cameraBtn");
+const switchCameraBtn = document.getElementById("switchCameraBtn");
 const callStatus = document.getElementById("callStatus");
 
 closeModal.addEventListener("click", () => {
@@ -507,10 +579,14 @@ fileInput.addEventListener("change", () => {
     });
 });
 callBtn.addEventListener("click", async () => {
-  console.log("📞 CALL BUTTON CLICKED");
-  await createPeerConnection();
+  console.log("📞 Voice Call");
 
-  const offer = await peerConnection.createOffer();
+  await createPeerConnection(false);
+
+  const offer = await peerConnection.createOffer({
+    offerToReceiveAudio: true,
+    offerToReceiveVideo: false,
+  });
 
   await peerConnection.setLocalDescription(offer);
 
@@ -518,15 +594,44 @@ callBtn.addEventListener("click", async () => {
 
   socket.emit("call-user", {
     caller: name,
+    type: "voice",
   });
 
   callingScreen.style.display = "flex";
 
-  callStatus.innerText = "Calling...";
+  callStatus.innerText = "Voice Calling...";
+});
+
+videoCallBtn.addEventListener("click", async () => {
+  console.log("📹 Video Call");
+
+  await createPeerConnection(true);
+
+  const offer = await peerConnection.createOffer({
+    offerToReceiveAudio: true,
+    offerToReceiveVideo: true,
+  });
+
+  await peerConnection.setLocalDescription(offer);
+
+  socket.emit("offer", offer);
+
+  socket.emit("call-user", {
+    caller: name,
+    type: "video",
+  });
+
+  callingScreen.style.display = "flex";
+
+  callStatus.innerText = "Video Calling...";
 });
 
 rejectCall.addEventListener("click", () => {
+  stopRingtone();
+
   pendingOffer = null;
+
+  pendingCandidates = [];
 
   callPopup.style.display = "none";
 
@@ -534,14 +639,16 @@ rejectCall.addEventListener("click", () => {
 });
 
 acceptCall.addEventListener("click", async () => {
+  stopRingtone();
   if (!pendingOffer) return;
   callPopup.style.display = "none";
 
   callingScreen.style.display = "flex";
 
-  callStatus.innerText = "Connected";
+  callStatus.innerText = "Conncting...";
 
-  await createPeerConnection();
+  const hasVideo = pendingCallType === "video";
+  await createPeerConnection(hasVideo);
 
   await peerConnection.setRemoteDescription(
     new RTCSessionDescription(pendingOffer),
@@ -564,6 +671,8 @@ acceptCall.addEventListener("click", async () => {
 });
 
 endCall.addEventListener("click", () => {
+  stopCallTimer();
+  stopRingtone();
   callingScreen.style.display = "none";
   clearInterval(statsInterval);
   if (peerConnection) {
@@ -574,22 +683,42 @@ endCall.addEventListener("click", () => {
   if (localStream) {
     localStream.getTracks().forEach((track) => track.stop());
     localStream = null;
+    isMuted = false;
+    muteBtn.innerText = "🎤 Mute";
+    cameraOff = false;
+    cameraBtn.innerText = "📷 Camera Off";
   }
 
   if (remoteAudio.srcObject) {
     remoteAudio.pause();
+    remoteAudio.currentTime = 0;
     remoteAudio.srcObject = null;
   }
+  remoteVideo.srcObject = null;
+  remoteVideo.style.display = "none";
 
+  remoteVideo.pause();
+  localVideo.pause();
+  localVideo.srcObject = null;
+  callStatus.innerText = "Waiting...";
   socket.emit("end-call");
 });
 
 socket.on("incoming-call", (data) => {
-  console.log("📲 Incoming Call:", data);
+  console.log("Incoming:", data);
 
-  callerName.innerText = data.caller + " is calling...";
+  pendingCallType = data.type || "voice";
+
+  callerName.innerText =
+    data.caller +
+    (pendingCallType === "video"
+      ? " is video calling..."
+      : " is voice calling...");
 
   callPopup.style.display = "flex";
+
+  //  Start ringtone
+  startRingtone();
 });
 
 socket.on("call-accepted", () => {
@@ -597,12 +726,19 @@ socket.on("call-accepted", () => {
 });
 
 socket.on("call-rejected", () => {
+  stopCallTimer();
+
+  stopRingtone();
+
   callingScreen.style.display = "none";
+
+  callStatus.innerText = "Waiting...";
 
   alert("Call Rejected");
 });
-
 socket.on("call-ended", () => {
+  stopCallTimer();
+  stopRingtone();
   callingScreen.style.display = "none";
   clearInterval(statsInterval);
 
@@ -614,12 +750,25 @@ socket.on("call-ended", () => {
   if (localStream) {
     localStream.getTracks().forEach((track) => track.stop());
     localStream = null;
+    isMuted = false;
+    muteBtn.innerText = "🎤 Mute";
+    cameraOff = false;
+    cameraBtn.innerText = "📷 Camera Off";
   }
 
   if (remoteAudio.srcObject) {
     remoteAudio.pause();
+    remoteAudio.currentTime = 0;
     remoteAudio.srcObject = null;
   }
+
+  remoteVideo.srcObject = null;
+  remoteVideo.style.display = "none";
+
+  remoteVideo.pause();
+  localVideo.pause();
+  localVideo.srcObject = null;
+  callStatus.innerText = "Waiting...";
 });
 
 socket.on("offer", (offer) => {
@@ -652,3 +801,103 @@ socket.on("ice-candidate", async (candidate) => {
     pendingCandidates.push(candidate);
   }
 });
+
+muteBtn.addEventListener("click", () => {
+  if (!localStream) return;
+
+  const audioTrack = localStream.getAudioTracks()[0];
+
+  if (!audioTrack) return;
+
+  isMuted = !isMuted;
+
+  audioTrack.enabled = !isMuted;
+
+  muteBtn.innerText = isMuted ? "🔇" : "🎤";
+});
+
+cameraBtn.addEventListener("click", () => {
+  if (!localStream) return;
+
+  const videoTrack = localStream.getVideoTracks()[0];
+
+  if (!videoTrack) return;
+
+  cameraOff = !cameraOff;
+
+  videoTrack.enabled = !cameraOff;
+
+  cameraBtn.innerText = cameraOff ? "📷 On" : "📷 Off";
+});
+
+switchCameraBtn.addEventListener("click", async () => {
+  if (!peerConnection) return;
+
+  await switchCamera();
+});
+
+const userStatus = document.getElementById("userStatus");
+
+socket.on("online-users", (users) => {
+  if (users.length > 1) {
+    userStatus.innerHTML = "🟢 Online";
+    userStatus.className = "online";
+  } else {
+    userStatus.innerHTML = "🔴 Offline";
+    userStatus.className = "offline";
+  }
+});
+
+async function switchCamera() {
+  if (!peerConnection || !localStream) return;
+
+  // সব camera বের করো
+  const devices = await navigator.mediaDevices.enumerateDevices();
+
+  const cameras = devices.filter((device) => device.kind === "videoinput");
+
+  // যদি একটি camera থাকে
+  if (cameras.length < 2) {
+    alert("Only one camera found");
+    return;
+  }
+
+  // পরের camera
+  cameraIndex++;
+
+  if (cameraIndex >= cameras.length) {
+    cameraIndex = 0;
+  }
+
+  // পুরাতন video বন্ধ
+  localStream.getVideoTracks().forEach((track) => {
+    track.stop();
+  });
+
+  // নতুন camera চালু
+  const newStream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      deviceId: {
+        exact: cameras[cameraIndex].deviceId,
+      },
+    },
+
+    audio: false,
+  });
+
+  const newVideoTrack = newStream.getVideoTracks()[0];
+
+  const sender = peerConnection.getSenders().find((sender) => {
+    return sender.track && sender.track.kind === "video";
+  });
+
+  if (sender) {
+    await sender.replaceTrack(newVideoTrack);
+  }
+
+  localVideo.srcObject = newStream;
+
+  localStream.removeTrack(localStream.getVideoTracks()[0]);
+
+  localStream.addTrack(newVideoTrack);
+}
