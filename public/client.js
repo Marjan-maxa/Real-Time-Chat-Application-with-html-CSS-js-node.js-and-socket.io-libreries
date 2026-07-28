@@ -1,5 +1,8 @@
 const socket = io();
 const ringtone = document.getElementById("ringtone");
+const backBtn = document.getElementById("backBtn");
+const usersPanel = document.getElementById("usersPanel");
+const chatUser = document.getElementById("chatUser");
 function startRingtone() {
   ringtone.currentTime = 0;
 
@@ -43,6 +46,7 @@ let isMuted = false;
 let cameraOff = false;
 let useFrontCamera = true;
 let cameraIndex = 0;
+let pendingCaller = null;
 const configuration = {
   iceServers: [
     {
@@ -81,6 +85,7 @@ const cancelPreview = document.getElementById("cancelPreview");
 let selectedImage = "";
 let name;
 let pendingCandidates = [];
+let selectedUser = null;
 let pendingOffer = null;
 let pendingCallType = "voice";
 const recordBtn = document.getElementById("recordBtn");
@@ -98,9 +103,12 @@ let messageArea = document.querySelector(".message_area");
 do {
   name = prompt("Enter your name:");
 } while (!name);
-document.querySelector("#userName").textContent = name;
-socket.emit("join", name);
+
+// Register this user
+socket.emit("register-user", name);
 function sendMessage(message) {
+  console.log("Me:", name);
+  console.log("Selected User:", selectedUser);
   if (!message.trim()) return;
 
   let msg = {
@@ -113,7 +121,10 @@ function sendMessage(message) {
   textarea.value = "";
   scrollToBottom();
 
-  socket.emit("message", msg);
+  socket.emit("message", {
+    ...msg,
+    to: selectedUser,
+  });
 }
 function appendMessage(msg, type) {
   let mainDiv = document.createElement("div");
@@ -122,11 +133,24 @@ function appendMessage(msg, type) {
   // নিজের message হলে Me দেখাবে, অন্যথায় sender-এর নাম
   const displayName = type === "outgoing" ? "Me" : msg.user;
 
-  let markup = `
+  let isEmoji = /^\p{Emoji}+$/u.test(msg.message.trim());
+
+  let markup;
+
+  if (isEmoji) {
+    mainDiv.classList.add("emoji-message");
+
+    markup = `
+  <div class="only-emoji">${msg.message}</div>
+  <span class="time">${msg.time}</span>
+`;
+  } else {
+    markup = `
       <h4>${displayName}</h4>
       <p>${msg.message}</p>
       <span class="time">${msg.time}</span>
   `;
+  }
 
   mainDiv.innerHTML = markup;
   messageArea.appendChild(mainDiv);
@@ -273,7 +297,10 @@ async function createPeerConnection(video = true) {
     if (event.candidate) {
       console.log(event.candidate.candidate);
 
-      socket.emit("ice-candidate", event.candidate);
+      socket.emit("ice-candidate", {
+        candidate: event.candidate,
+        to: selectedUser,
+      });
     }
   };
 
@@ -361,7 +388,10 @@ sendBtn.addEventListener("click", () => {
 
     appendImage(msg, "outgoing");
 
-    socket.emit("image", msg);
+    socket.emit("image", {
+      ...msg,
+      to: selectedUser,
+    });
 
     selectedImage = "";
     previewBox.style.display = "none";
@@ -377,18 +407,65 @@ textarea.addEventListener("keydown", (e) => {
   }
 });
 textarea.addEventListener("input", () => {
-  socket.emit("typing", name);
+  if (!selectedUser) return;
+
+  socket.emit("typing", {
+    user: name,
+    to: selectedUser,
+  });
 });
-socket.on("typing", (user) => {
+socket.on("typing", (data) => {
   const typing = document.getElementById("typing");
 
-  typing.innerText = `${user} is typing...`;
+  typing.innerText = `${data.user} is typing...`;
 
   clearTimeout(window.typingTimer);
 
   window.typingTimer = setTimeout(() => {
     typing.innerText = "";
   }, 1000);
+});
+
+socket.on("user-list", (users) => {
+  const usersList = document.getElementById("usersList");
+
+  usersList.innerHTML = "";
+
+  users.forEach((user) => {
+    if (user === name) return;
+
+    const div = document.createElement("div");
+
+    div.className = "user-item";
+
+    div.innerHTML = "🟢 " + user;
+
+    div.addEventListener("click", () => {
+      selectedUser = user;
+
+      document.getElementById("chatUser").textContent = user;
+      userStatus.textContent = "🟢 Online";
+
+      document.getElementById("backBtn").style.display = "block";
+
+      document.getElementById("usersPanel").style.display = "none";
+
+      document.querySelectorAll(".user-item").forEach((item) => {
+        item.classList.remove("active-user");
+      });
+
+      div.classList.add("active-user");
+    });
+
+    usersList.appendChild(div);
+  });
+  if (selectedUser) {
+    if (users.includes(selectedUser)) {
+      userStatus.textContent = "🟢 Online";
+    } else {
+      userStatus.textContent = "🔴 Offline";
+    }
+  }
 });
 
 const emojiPicker = document.getElementById("emojiPicker");
@@ -405,9 +482,17 @@ const picker = new EmojiMart.Picker({
 
 emojiPicker.appendChild(picker);
 
-emojiBtn.addEventListener("click", () => {
+emojiBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+
   emojiPicker.style.display =
     emojiPicker.style.display === "block" ? "none" : "block";
+});
+
+document.addEventListener("click", (e) => {
+  if (!emojiPicker.contains(e.target) && !emojiBtn.contains(e.target)) {
+    emojiPicker.style.display = "none";
+  }
 });
 
 recordBtn.addEventListener("click", async () => {
@@ -442,7 +527,10 @@ recordBtn.addEventListener("click", async () => {
             time: getCurrentTime(),
           };
 
-          socket.emit("voice", msg);
+          socket.emit("voice", {
+            ...msg,
+            to: selectedUser,
+          });
 
           appendVoice(msg, "outgoing");
         };
@@ -515,7 +603,7 @@ const muteBtn = document.getElementById("muteBtn");
 const cameraBtn = document.getElementById("cameraBtn");
 const switchCameraBtn = document.getElementById("switchCameraBtn");
 const callStatus = document.getElementById("callStatus");
-
+const userStatus = document.getElementById("userStatus");
 closeModal.addEventListener("click", () => {
   imageModal.style.display = "none";
 });
@@ -573,12 +661,19 @@ fileInput.addEventListener("change", () => {
 
       appendFile(msg, "outgoing");
 
-      socket.emit("file", msg);
+      socket.emit("file", {
+        ...msg,
+        to: selectedUser,
+      });
 
       fileInput.value = "";
     });
 });
 callBtn.addEventListener("click", async () => {
+  if (!selectedUser) {
+    alert("Please select a user first!");
+    return;
+  }
   console.log("📞 Voice Call");
 
   await createPeerConnection(false);
@@ -590,10 +685,15 @@ callBtn.addEventListener("click", async () => {
 
   await peerConnection.setLocalDescription(offer);
 
-  socket.emit("offer", offer);
+  socket.emit("offer", {
+    offer,
+    to: selectedUser,
+    user: name,
+  });
 
   socket.emit("call-user", {
     caller: name,
+    to: selectedUser,
     type: "voice",
   });
 
@@ -614,10 +714,15 @@ videoCallBtn.addEventListener("click", async () => {
 
   await peerConnection.setLocalDescription(offer);
 
-  socket.emit("offer", offer);
+  socket.emit("offer", {
+    offer,
+    to: selectedUser,
+    user: name,
+  });
 
   socket.emit("call-user", {
     caller: name,
+    to: selectedUser,
     type: "video",
   });
 
@@ -635,7 +740,9 @@ rejectCall.addEventListener("click", () => {
 
   callPopup.style.display = "none";
 
-  socket.emit("reject-call");
+  socket.emit("reject-call", {
+    to: pendingCaller,
+  });
 });
 
 acceptCall.addEventListener("click", async () => {
@@ -665,9 +772,14 @@ acceptCall.addEventListener("click", async () => {
 
   await peerConnection.setLocalDescription(answer);
 
-  socket.emit("answer", answer);
+  socket.emit("answer", {
+    answer,
+    to: pendingCaller,
+  });
 
-  socket.emit("accept-call");
+  socket.emit("accept-call", {
+    to: pendingCaller,
+  });
 });
 
 endCall.addEventListener("click", () => {
@@ -701,12 +813,14 @@ endCall.addEventListener("click", () => {
   localVideo.pause();
   localVideo.srcObject = null;
   callStatus.innerText = "Waiting...";
-  socket.emit("end-call");
+  socket.emit("end-call", {
+    to: selectedUser,
+  });
 });
 
 socket.on("incoming-call", (data) => {
   console.log("Incoming:", data);
-
+  pendingCaller = data.caller;
   pendingCallType = data.type || "voice";
 
   callerName.innerText =
@@ -771,21 +885,24 @@ socket.on("call-ended", () => {
   callStatus.innerText = "Waiting...";
 });
 
-socket.on("offer", (offer) => {
-  console.log("📩 Offer received");
+socket.on("offer", (data) => {
+  console.log("📥 Offer Received");
 
-  pendingOffer = offer;
+  pendingOffer = data.offer;
+  pendingCaller = data.from;
 });
 
-socket.on("answer", async (answer) => {
-  if (peerConnection.signalingState !== "have-local-offer") {
-    return;
-  }
+socket.on("answer", async (data) => {
+  const answer = data.answer;
+
+  if (peerConnection.signalingState !== "have-local-offer") return;
 
   await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
 });
 
-socket.on("ice-candidate", async (candidate) => {
+socket.on("ice-candidate", async (data) => {
+  const candidate = data.candidate;
+
   if (!peerConnection) {
     console.log("⏳ ICE queued (no peer yet)");
     pendingCandidates.push(candidate);
@@ -834,18 +951,6 @@ switchCameraBtn.addEventListener("click", async () => {
   if (!peerConnection) return;
 
   await switchCamera();
-});
-
-const userStatus = document.getElementById("userStatus");
-
-socket.on("online-users", (users) => {
-  if (users.length > 1) {
-    userStatus.innerHTML = "🟢 Online";
-    userStatus.className = "online";
-  } else {
-    userStatus.innerHTML = "🔴 Offline";
-    userStatus.className = "offline";
-  }
 });
 
 async function switchCamera() {
@@ -901,3 +1006,14 @@ async function switchCamera() {
 
   localStream.addTrack(newVideoTrack);
 }
+
+backBtn.addEventListener("click", () => {
+  selectedUser = null;
+
+  chatUser.textContent = "Select User";
+  userStatus.textContent = "Offline";
+
+  usersPanel.style.display = "block";
+
+  backBtn.style.display = "none";
+});

@@ -801,3 +801,62 @@ button {
 .offline {
   color: red;
 }
+
+.users-panel {
+  background: #fff;
+
+  padding: 10px;
+
+  border-bottom: 1px solid #ddd;
+}
+
+.user-item {
+  padding: 8px;
+
+  margin: 5px 0;
+
+  background: #f2f2f2;
+
+  border-radius: 8px;
+
+  cursor: pointer;
+}
+
+.user-item:hover {
+  background: #d9fdd3;
+}
+
+.user-item.active-user {
+  background: #25d366;
+  color: white;
+  border-radius: 8px;
+}
+#backBtn {
+  display: none;
+}
+
+.emoji-message {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+  margin-top: 20px;
+  margin-bottom: 12px;
+  max-width: fit-content;
+  min-width: 0;
+}
+
+.only-emoji {
+  font-size: 48px;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+}
+
+.emoji-message .time {
+  position: static;
+  display: block;
+  margin-top: 4px;
+  text-align: right;
+  font-size: 10px;
+}

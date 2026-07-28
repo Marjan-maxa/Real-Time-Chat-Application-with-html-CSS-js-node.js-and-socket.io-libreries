@@ -5,7 +5,7 @@ const PORT = process.env.PORT || 4000;
 
 const io = require("socket.io")(http);
 const users = {};
-const onlineUsers = [];
+
 const multer = require("multer");
 const path = require("path");
 
@@ -41,91 +41,136 @@ app.get("/", (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  socket.on("join", (name) => {
-    users[socket.id] = name;
-
-    onlineUsers.push(name);
-
-    io.emit("online-users", onlineUsers);
-  });
   console.log("✅ User Connected:", socket.id);
 
-  socket.on("message", (msg) => {
-    socket.broadcast.emit("message", msg);
+  // Register User
+  socket.on("register-user", (username) => {
+    users[username] = socket.id;
+
+    console.log(username + " Registered");
+
+    io.emit("user-list", Object.keys(users));
+  });
+  socket.on("message", (data) => {
+    console.log(data);
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("message", data);
+    }
   });
 
-  socket.on("typing", (user) => {
-    socket.broadcast.emit("typing", user);
+  socket.on("typing", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("typing", {
+        user: data.user,
+      });
+    }
   });
 
   // ✅ Voice Message
-  socket.on("voice", (msg) => {
-    console.log("Voice received");
-    socket.broadcast.emit("voice", msg);
+  socket.on("voice", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("voice", data);
+    }
   });
 
-  socket.on("image", (msg) => {
-    socket.broadcast.emit("image", msg);
+  socket.on("image", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("image", data);
+    }
   });
 
-  socket.on("file", (msg) => {
-    socket.broadcast.emit("file", msg);
+  socket.on("file", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("file", data);
+    }
   });
 
   socket.on("call-user", (data) => {
-    console.log("📞 Call request from:", data);
+    const targetSocket = users[data.to];
 
-    socket.broadcast.emit("incoming-call", {
-      caller: data.caller,
-      type: data.type,
-    });
+    if (targetSocket) {
+      io.to(targetSocket).emit("incoming-call", {
+        caller: data.caller,
+        type: data.type,
+      });
+    }
   });
   // Accept Call
-  socket.on("accept-call", () => {
-    socket.broadcast.emit("call-accepted");
+  socket.on("accept-call", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("call-accepted");
+    }
   });
 
   // Reject Call
-  socket.on("reject-call", () => {
-    socket.broadcast.emit("call-rejected");
+  socket.on("reject-call", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("call-rejected");
+    }
   });
 
   // End Call
-  socket.on("end-call", () => {
-    socket.broadcast.emit("call-ended");
+  socket.on("end-call", (data) => {
+    const targetSocket = users[data.to];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("call-ended");
+    }
   });
-  socket.on("offer", (offer) => {
-    console.log("📤 Offer forwarding");
+  socket.on("offer", (data) => {
+    const targetSocket = users[data.to];
 
-    socket.broadcast.emit("offer", offer);
+    if (targetSocket) {
+      io.to(targetSocket).emit("offer", {
+        offer: data.offer,
+        from: data.user,
+      });
+    }
   });
 
-  socket.on("answer", (answer) => {
-    console.log("📥 Answer forwarding");
+  socket.on("answer", (data) => {
+    const targetSocket = users[data.to];
 
-    socket.broadcast.emit("answer", answer);
+    if (targetSocket) {
+      io.to(targetSocket).emit("answer", {
+        answer: data.answer,
+      });
+    }
   });
 
-  socket.on("ice-candidate", (candidate) => {
-    socket.broadcast.emit("ice-candidate", candidate);
-  });
+  socket.on("ice-candidate", (data) => {
+    const targetSocket = users[data.to];
 
+    if (targetSocket) {
+      io.to(targetSocket).emit("ice-candidate", data);
+    }
+  });
   socket.on("disconnect", () => {
-    const user = users[socket.id];
+    console.log("❌ User Disconnected:", socket.id);
 
-    if (user) {
-      const index = onlineUsers.indexOf(user);
+    for (const username in users) {
+      if (users[username] === socket.id) {
+        delete users[username];
 
-      if (index !== -1) {
-        onlineUsers.splice(index, 1);
+        break;
       }
-
-      delete users[socket.id];
-
-      io.emit("online-users", onlineUsers);
     }
 
-    console.log("❌ User Disconnected:", socket.id);
+    io.emit("user-list", Object.keys(users));
   });
 });
 

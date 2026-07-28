@@ -10,19 +10,24 @@
     <audio id="ringtone" src="/sounds/ringtone.mp3" loop></audio>
     <section class="chat_section">
       <div class="brand">
+        <button id="backBtn" style="display: none">⬅</button>
+
         <img height="40" src="/logo.png" alt="" />
-        <h1 id="userName">ChatBox</h1>
+
         <div class="chat-header">
-          <h3 id="userName"></h3>
-          <span id="userStatus" class="offline">🔴 Offline</span>
+          <h3 id="chatUser">Select User</h3>
+          <span id="userStatus">🔴 Offline</span>
         </div>
+
         <div class="header-actions">
           <button id="callBtn">📞</button>
-
-          <button id="videoCallBtn">📹</button>
-
+          <button id="videoCallBtn">🎦</button>
           <button id="themeBtn">🌙</button>
         </div>
+      </div>
+      <div class="users-panel" id="usersPanel">
+        <h3>Users</h3>
+        <div id="usersList"></div>
       </div>
 
       <div class="message_area"></div>
